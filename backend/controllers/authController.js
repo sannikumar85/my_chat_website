@@ -49,6 +49,10 @@ const sendOtp = async (req, res) => {
     return response(res, 200, "otp send sucessfully", user);
   } catch (error) {
     console.error(error);
+    const message = error?.message || "Internal server error";
+    if (message.toLowerCase().includes("email")) {
+      return response(res, 502, message);
+    }
     return response(res, 500, "Internal server error");
   }
 };

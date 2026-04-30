@@ -2,23 +2,59 @@ const nodemailer = require("nodemailer");
 const dotenv = require("dotenv");
 dotenv.config();
 
-const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-});
+const emailUser = process.env.EMAIL_USER;
+const emailPass = process.env.EMAIL_PASS
+  ? process.env.EMAIL_PASS.replace(/\s+/g, "")
+  : "";
+const smtpHost = process.env.EMAIL_HOST;
+const smtpPort = process.env.EMAIL_PORT ? Number(process.env.EMAIL_PORT) : undefined;
+const smtpSecure = process.env.EMAIL_SECURE === "true";
+const isEmailConfigured = Boolean(emailUser && emailPass);
 
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("Error in email configuration:");
-  } else {
-    console.log("Email service is ready to send messages.");
-  }
-});
+if (!isEmailConfigured) {
+  console.warn(
+    "Email service not configured. Set EMAIL_USER and EMAIL_PASS (Gmail app password) in backend/.env."
+  );
+}
+
+const transporter = isEmailConfigured
+  ? nodemailer.createTransport(
+      smtpHost
+        ? {
+            host: smtpHost,
+            port: smtpPort || 587,
+            secure: smtpSecure,
+            auth: {
+              user: emailUser,
+              pass: emailPass,
+            },
+          }
+        : {
+            service: "gmail",
+            auth: {
+              user: emailUser,
+              pass: emailPass,
+            },
+          }
+    )
+  : null;
+
+if (transporter) {
+  transporter.verify((error) => {
+    if (error) {
+      console.error("Error in email configuration:", error.message);
+    } else {
+      console.log("Email service is ready to send messages.");
+    }
+  });
+}
 
 const sendOtpToEmail = async (email, otp) => {
+  if (!isEmailConfigured || !transporter) {
+    throw new Error(
+      "Email service not configured. Set EMAIL_USER and EMAIL_PASS (Gmail app password)."
+    );
+  }
   const html = `
     <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
       <h2 style="color: #1B5E8C;">🔐 SG Consultancy Chat Verification</h2>
@@ -42,12 +78,21 @@ const sendOtpToEmail = async (email, otp) => {
       <small style="color: #777;">This is an automated message. Please do not reply.</small>
     </div>
   `;
-  await transporter.sendMail({
-    from: `SG Consultancy Chat < ${process.env.EMAIL_USER}`,
-    to: email,
-    subject: "SG Consultancy Chat OTP Verification",
-    html,
-  });
+  try {
+    await transporter.sendMail({
+      from: `SG Consultancy Chat <${emailUser}>`,
+      to: email,
+      subject: "SG Consultancy Chat OTP Verification",
+      html,
+    });
+  } catch (error) {
+    if (error && (error.code === "EAUTH" || String(error.message).includes("535"))) {
+      throw new Error(
+        "Email authentication failed. Use a Gmail App Password (16 chars) and ensure 2FA is enabled."
+      );
+    }
+    throw error;
+  }
 };
 
 module.exports = {
